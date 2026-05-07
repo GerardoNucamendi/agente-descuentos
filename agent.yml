@@ -1,33 +1,32 @@
-name: 🤖 Agente Descuentos MercadoLibre
+name: Agente Descuentos MercadoLibre
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # Cada 6 horas automáticamente
-  workflow_dispatch:          # También puedes correrlo manualmente desde GitHub
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   buscar-ofertas:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 📥 Descargar código
+      - name: Descargar codigo
         uses: actions/checkout@v4
 
-      - name: 🐍 Configurar Python
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 📦 Instalar dependencias
+      - name: Instalar dependencias
         run: pip install requests
 
-      - name: 🔍 Correr agente de descuentos
+      - name: Correr agente de descuentos
         env:
           ML_CLIENT_ID: ${{ secrets.ML_CLIENT_ID }}
           ML_CLIENT_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
         run: python agent.py
 
-      - name: 💾 Guardar resultados como artefacto
+      - name: Guardar resultados
         uses: actions/upload-artifact@v4
         with:
           name: ofertas-${{ github.run_number }}
