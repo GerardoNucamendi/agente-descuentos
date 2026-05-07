@@ -5,110 +5,105 @@ Busca productos con más de 50% de descuento en Electrónica, Moda y Deportes
 
 import requests
 import json
-import os
 from datetime import datetime
 
-# ============================================================
-# CONFIGURACIÓN - Pon tus credenciales aquí o en variables de entorno
-# ============================================================
-CLIENT_ID = os.getenv("ML_CLIENT_ID", "8471418706132879")
-CLIENT_SECRET = os.getenv("ML_CLIENT_SECRET", "ZlQdAlTXH01NBvAnoGfRzQVCU0jSVMtA")
+DESCUENTO_MINIMO = 50
 
-DESCUENTO_MINIMO = 50  # Porcentaje mínimo de descuento
-
-# Categorías de MercadoLibre México
-CATEGORIAS = {
-    "Electrónica":        "MLM1000",
-    "Moda y Calzado":     "MLM1430",
-    "Deportes y Fitness": "MLM1276",
-}
-
-# Palabras clave extra para búsqueda dentro de cada categoría
-KEYWORDS_POR_CATEGORIA = {
-    "Electrónica":        ["celular", "laptop", "audífonos", "tablet", "smartwatch"],
-    "Moda y Calzado":     ["tenis", "ropa", "zapatos", "chamarra", "vestido"],
-    "Deportes y Fitness": ["proteína", "creatina", "pesas", "bicicleta", "ropa deportiva"],
-}
-
-# ============================================================
-# AUTENTICACIÓN
-# ============================================================
-def obtener_token():
-    """Obtiene access token usando Client Credentials flow"""
-    url = "https://api.mercadolibre.com/oauth/token"
-    payload = {
-        "grant_type": "client_credentials",
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-    }
-    resp = requests.post(url, data=payload)
-    resp.raise_for_status()
-    token = resp.json().get("access_token")
-    print(f"✅ Token obtenido correctamente")
-    return token
+BUSQUEDAS = [
+    # Electrónica
+    {"keyword": "celular", "categoria": "Electrónica"},
+    {"keyword": "laptop", "categoria": "Electrónica"},
+    {"keyword": "audifonos", "categoria": "Electrónica"},
+    {"keyword": "tablet", "categoria": "Electrónica"},
+    {"keyword": "smartwatch", "categoria": "Electrónica"},
+    # Moda y Calzado
+    {"keyword": "tenis", "categoria": "Moda y Calzado"},
+    {"keyword": "ropa mujer", "categoria": "Moda y Calzado"},
+    {"keyword": "zapatos", "categoria": "Moda y Calzado"},
+    {"keyword": "chamarra", "categoria": "Moda y Calzado"},
+    # Deportes y Suplementos
+    {"keyword": "proteina", "categoria": "Deportes y Fitness"},
+    {"keyword": "creatina", "categoria": "Deportes y Fitness"},
+    {"keyword": "pesas", "categoria": "Deportes y Fitness"},
+    {"keyword": "bicicleta", "categoria": "Deportes y Fitness"},
+]
 
 
-# ============================================================
-# BÚSQUEDA DE OFERTAS
-# ============================================================
-def buscar_ofertas(token, categoria_id, keyword, limite=10):
-    """Busca productos en una categoría y filtra por descuento"""
+def buscar_ofertas(keyword, categoria):
+    """Busca usando la API pública de MercadoLibre (sin autenticación)"""
     url = "https://api.mercadolibre.com/sites/MLM/search"
-    headers = {"Authorization": f"Bearer {token}"}
     params = {
-        "category": categoria_id,
         "q": keyword,
-        "limit": limite,
-        "sort": "price_asc",
+        "limit": 20,
+        "sort": "relevance",
     }
-    resp = requests.get(url, headers=headers, params=params)
-    if resp.status_code != 200:
-        print(f"  ⚠️ Error buscando '{keyword}': {resp.status_code}")
+
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code != 200:
+            print(f"  Error {resp.status_code} buscando '{keyword}'")
+            return []
+
+        resultados = resp.json().get("results", [])
+        ofertas = []
+
+        for item in resultados:
+            precio_original = item.get("original_price")
+            precio_actual = item.get("price")
+
+            if not precio_original or not precio_actual:
+                continue
+
+            if precio_original <= precio_actual:
+                continue
+
+            descuento = ((precio_original - precio_actual) / precio_original) * 100
+
+            if descuento >= DESCUENTO_MINIMO:
+                ofertas.append({
+                    "titulo": item.get("title"),
+                    "precio_original": precio_original,
+                    "precio_actual": precio_actual,
+                    "descuento": round(descuento, 1),
+                    "link": item.get("permalink"),
+                    "categoria": categoria,
+                })
+
+        return ofertas
+
+    except Exception as e:
+        print(f"  Excepcion buscando '{keyword}': {e}")
         return []
 
-    resultados = resp.json().get("results", [])
-    ofertas = []
 
-    for item in resultados:
-        precio_original = item.get("original_price")
-        precio_actual = item.get("price")
+def formatear_post(oferta):
+    emoji = {"Electrónica": "📱", "Moda y Calzado": "👟", "Deportes y Fitness": "🏋️"}.get(oferta["categoria"], "🛍️")
+    return f"""{emoji} OFERTA {oferta['descuento']}% DE DESCUENTO!
 
-        # Solo productos que tienen precio original (están en oferta)
-        if not precio_original or not precio_actual:
-            continue
+{oferta['titulo']}
 
-        descuento = ((precio_original - precio_actual) / precio_original) * 100
+Antes: ${oferta['precio_original']:,.2f}
+AHORA: ${oferta['precio_actual']:,.2f}
 
-        if descuento >= DESCUENTO_MINIMO:
-            ofertas.append({
-                "titulo": item.get("title"),
-                "precio_original": precio_original,
-                "precio_actual": precio_actual,
-                "descuento": round(descuento, 1),
-                "link": item.get("permalink"),
-                "imagen": item.get("thumbnail", "").replace("I.jpg", "O.jpg"),
-                "vendedor": item.get("seller", {}).get("nickname", ""),
-                "categoria": item.get("category_id", ""),
-            })
+Compra aqui: {oferta['link']}
 
-    return ofertas
+#Ofertas #MercadoLibre #Descuentos
+"""
 
 
-def buscar_todas_las_categorias(token):
-    """Recorre todas las categorías y keywords, devuelve lista de ofertas"""
+def main():
+    print("=" * 60)
+    print("AGENTE DE DESCUENTOS - MERCADOLIBRE MEXICO")
+    print(f"Descuento minimo: {DESCUENTO_MINIMO}%")
+    print("=" * 60)
+
     todas = []
 
-    for nombre_cat, cat_id in CATEGORIAS.items():
-        print(f"\n📦 Buscando en: {nombre_cat}")
-        keywords = KEYWORDS_POR_CATEGORIA[nombre_cat]
-
-        for kw in keywords:
-            print(f"  🔍 '{kw}'...")
-            ofertas = buscar_ofertas(token, cat_id, kw)
-            for o in ofertas:
-                o["nombre_categoria"] = nombre_cat
-            todas.extend(ofertas)
-            print(f"     → {len(ofertas)} ofertas encontradas")
+    for b in BUSQUEDAS:
+        print(f"\nBuscando '{b['keyword']}' en {b['categoria']}...")
+        ofertas = buscar_ofertas(b["keyword"], b["categoria"])
+        print(f"  -> {len(ofertas)} ofertas encontradas")
+        todas.extend(ofertas)
 
     # Eliminar duplicados por link
     vistos = set()
@@ -118,98 +113,39 @@ def buscar_todas_las_categorias(token):
             vistos.add(o["link"])
             sin_duplicados.append(o)
 
-    # Ordenar por mayor descuento primero
     sin_duplicados.sort(key=lambda x: x["descuento"], reverse=True)
-    return sin_duplicados
 
-
-# ============================================================
-# FORMATO PARA FACEBOOK
-# ============================================================
-def formatear_post_facebook(oferta):
-    """Genera el texto del post para Facebook"""
-    emoji_cat = {
-        "Electrónica": "📱",
-        "Moda y Calzado": "👟",
-        "Deportes y Fitness": "🏋️",
-    }.get(oferta["nombre_categoria"], "🛍️")
-
-    texto = f"""🔥 ¡OFERTA INCREÍBLE! {emoji_cat}
-
-{oferta['titulo']}
-
-💰 Antes: ${oferta['precio_original']:,.2f}
-✅ AHORA: ${oferta['precio_actual']:,.2f}
-🏷️ ¡{oferta['descuento']}% de DESCUENTO!
-
-👉 Compra aquí: {oferta['link']}
-
-#Ofertas #MercadoLibre #Descuentos #{oferta['nombre_categoria'].replace(' ', '')}
-"""
-    return texto
-
-
-# ============================================================
-# GUARDAR RESULTADOS
-# ============================================================
-def guardar_resultados(ofertas):
-    """Guarda las ofertas en JSON y genera los posts de Facebook"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Guardar JSON completo
-    with open(f"ofertas_{timestamp}.json", "w", encoding="utf-8") as f:
-        json.dump(ofertas, f, ensure_ascii=False, indent=2)
-
-    # Guardar posts de Facebook en TXT
-    with open(f"posts_facebook_{timestamp}.txt", "w", encoding="utf-8") as f:
-        f.write(f"=== POSTS GENERADOS EL {datetime.now().strftime('%d/%m/%Y %H:%M')} ===\n\n")
-        for i, oferta in enumerate(ofertas, 1):
-            f.write(f"--- POST #{i} ({oferta['nombre_categoria']}) ---\n")
-            f.write(formatear_post_facebook(oferta))
-            f.write("\n" + "="*60 + "\n\n")
-
-    print(f"\n✅ Guardados: ofertas_{timestamp}.json")
-    print(f"✅ Guardados: posts_facebook_{timestamp}.txt")
-    return timestamp
-
-
-# ============================================================
-# MAIN
-# ============================================================
-def main():
-    print("=" * 60)
-    print("🤖 AGENTE DE DESCUENTOS - MERCADOLIBRE MÉXICO")
-    print(f"   Descuento mínimo: {DESCUENTO_MINIMO}%")
-    print(f"   Categorías: {', '.join(CATEGORIAS.keys())}")
-    print("=" * 60)
-
-    # 1. Autenticar
-    token = obtener_token()
-
-    # 2. Buscar ofertas
-    ofertas = buscar_todas_las_categorias(token)
-
-    # 3. Mostrar resumen
     print(f"\n{'='*60}")
-    print(f"🎯 TOTAL DE OFERTAS ENCONTRADAS: {len(ofertas)}")
+    print(f"TOTAL OFERTAS ENCONTRADAS: {len(sin_duplicados)}")
     print(f"{'='*60}")
 
-    if not ofertas:
-        print("😕 No se encontraron ofertas con ese descuento en este momento.")
-        print("   Intenta aumentar el rango de keywords o bajar el % mínimo.")
+    if not sin_duplicados:
+        print("No se encontraron ofertas con ese descuento ahora.")
         return
 
-    # 4. Mostrar top 5
-    print("\n🏆 TOP 5 MEJORES DESCUENTOS:")
-    for i, o in enumerate(ofertas[:5], 1):
-        print(f"\n{i}. [{o['descuento']}% OFF] {o['titulo'][:60]}...")
-        print(f"   ${o['precio_original']:,.0f} → ${o['precio_actual']:,.0f}")
+    # Mostrar top 5
+    print("\nTOP 5 MEJORES DESCUENTOS:")
+    for i, o in enumerate(sin_duplicados[:5], 1):
+        print(f"\n{i}. [{o['descuento']}% OFF] {o['titulo'][:60]}")
+        print(f"   ${o['precio_original']:,.0f} -> ${o['precio_actual']:,.0f}")
         print(f"   {o['link']}")
 
-    # 5. Guardar todo
-    guardar_resultados(ofertas)
+    # Guardar JSON
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"ofertas_{timestamp}.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(sin_duplicados, f, ensure_ascii=False, indent=2)
+    print(f"\nGuardado: {filename}")
 
-    print("\n🚀 ¡Listo! Revisa los archivos generados para copiar y pegar en Facebook.")
+    # Guardar posts
+    posts_file = f"posts_facebook_{timestamp}.txt"
+    with open(posts_file, "w", encoding="utf-8") as f:
+        f.write(f"POSTS GENERADOS EL {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n")
+        for i, o in enumerate(sin_duplicados, 1):
+            f.write(f"--- POST #{i} ---\n")
+            f.write(formatear_post(o))
+            f.write("\n" + "=" * 50 + "\n\n")
+    print(f"Guardado: {posts_file}")
 
 
 if __name__ == "__main__":
